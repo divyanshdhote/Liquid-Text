@@ -1,10 +1,52 @@
-import { useState, useCallback, useRef } from 'react';
-import { FileUp, Upload, FolderOpen, Droplets } from 'lucide-react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { FileUp, Upload, FolderOpen, Droplets, ArrowLeft, X } from 'lucide-react';
+import PDFViewer from './components/pdf/PDFViewer.jsx';
+import WorkspaceCanvas from './components/workspace/WorkspaceCanvas.jsx';
+import SplitPane from './components/layout/SplitPane.jsx';
+import useProjectStore from './stores/projectStore.js';
 
 export default function App() {
   const [isDragOver, setIsDragOver] = useState(false);
-  const [project, setProject] = useState(null);
   const fileInputRef = useRef(null);
+
+  // Project store
+  const {
+    projects,
+    activeProjectId,
+    documents,
+    isLoading,
+    loadProjects,
+    createProject,
+    openProject,
+    closeProject,
+    addDocument,
+    getDocumentFileData,
+    deleteProject,
+  } = useProjectStore();
+
+  // Active document state (which PDF is being viewed)
+  const [activeDocId, setActiveDocId] = useState(null);
+  const [activeFileData, setActiveFileData] = useState(null);
+  const [activeFileName, setActiveFileName] = useState('');
+
+  // Load projects on mount
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
+
+  // When documents change and we don't have an active doc, open the first one
+  useEffect(() => {
+    if (documents.length > 0 && !activeDocId) {
+      loadDocument(documents[0]);
+    }
+  }, [documents]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadDocument = async (doc) => {
+    setActiveDocId(doc.id);
+    setActiveFileName(doc.fileName);
+    const data = await getDocumentFileData(doc.id);
+    setActiveFileData(data);
+  };
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
@@ -18,7 +60,7 @@ export default function App() {
     setIsDragOver(false);
   }, []);
 
-  const handleDrop = useCallback((e) => {
+  const handleDrop = useCallback(async (e) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
@@ -27,28 +69,53 @@ export default function App() {
       (f) => f.type === 'application/pdf'
     );
     if (files.length > 0) {
-      handleFiles(files);
+      await handleFiles(files);
     }
-  }, []);
+  }, [activeProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleFileSelect = useCallback((e) => {
+  const handleFileSelect = useCallback(async (e) => {
     const files = Array.from(e.target.files);
     if (files.length > 0) {
-      handleFiles(files);
+      await handleFiles(files);
     }
-    // Reset input so the same file can be re-selected
     e.target.value = '';
-  }, []);
+  }, [activeProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleFiles = (files) => {
-    // Phase 2+ will store in IndexedDB and open the PDF viewer
-    console.log('PDF files received:', files.map((f) => f.name));
-    setProject({ name: files[0].name, files });
+  const handleFiles = async (files) => {
+    let projectId = activeProjectId;
+
+    // If no project is active, create one named after the first file
+    if (!projectId) {
+      const name = files[0].name.replace('.pdf', '');
+      projectId = await createProject(name);
+      if (!projectId) return;
+    }
+
+    // Add each file to the project
+    for (const file of files) {
+      const docId = await addDocument(file);
+      // Open the first uploaded document
+      if (docId && !activeDocId) {
+        const data = await file.arrayBuffer();
+        setActiveDocId(docId);
+        setActiveFileName(file.name);
+        setActiveFileData(data);
+      }
+    }
   };
 
   const openFilePicker = () => {
     fileInputRef.current?.click();
   };
+
+  const handleBackToHome = () => {
+    closeProject();
+    setActiveDocId(null);
+    setActiveFileData(null);
+    setActiveFileName('');
+  };
+
+  const isViewingPDF = activeProjectId && activeDocId && activeFileData;
 
   return (
     <div className="app-container">
@@ -61,23 +128,74 @@ export default function App() {
           <span>LiquidText</span>
         </div>
 
+        {/* Show active project name */}
+        {activeProjectId && (
+          <>
+            <div className="app-toolbar__divider" />
+            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+              {activeFileName}
+            </span>
+          </>
+        )}
+
         <div className="app-toolbar__spacer" />
 
         <div className="app-toolbar__group">
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={openFilePicker}
-            id="btn-open-pdf"
-          >
-            <FolderOpen size={15} />
-            Open PDF
-          </button>
+          {activeProjectId && (
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={openFilePicker}
+              id="btn-add-pdf"
+              title="Add another PDF"
+            >
+              <FileUp size={15} />
+              Add PDF
+            </button>
+          )}
+          {!activeProjectId && (
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={openFilePicker}
+              id="btn-open-pdf"
+            >
+              <FolderOpen size={15} />
+              Open PDF
+            </button>
+          )}
+          {activeProjectId && (
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={handleBackToHome}
+              id="btn-close-project"
+              data-tooltip="Close project"
+              data-tooltip-pos="bottom"
+            >
+              <X size={15} />
+              Close
+            </button>
+          )}
         </div>
       </header>
 
       {/* ---- Main Content ---- */}
       <main className="app-main" id="main-content">
-        {!project ? (
+        {isViewingPDF ? (
+          /* Main Workspace View */
+          <SplitPane
+            initialLeftWidth={50}
+            left={
+              <PDFViewer
+                fileData={activeFileData}
+                fileName={activeFileName}
+                documentId={activeDocId}
+                projectId={activeProjectId}
+              />
+            }
+            right={
+              <WorkspaceCanvas projectId={activeProjectId} />
+            }
+          />
+        ) : (
           /* Welcome / Empty State */
           <div className="welcome-screen fade-in">
             <div className="welcome-screen__icon">
@@ -126,28 +244,36 @@ export default function App() {
                 Upload PDF
               </button>
             </div>
-          </div>
-        ) : (
-          /* Placeholder for Phase 3+ — PDF Viewer & Workspace */
-          <div className="welcome-screen fade-in">
-            <div className="welcome-screen__icon">
-              <Droplets size={36} color="#0a0f1e" strokeWidth={2} />
-            </div>
-            <h1 className="welcome-screen__title">
-              {project.name}
-            </h1>
-            <p className="welcome-screen__subtitle">
-              PDF loaded successfully. The viewer will be built in Phase 3.
-            </p>
-            <div className="welcome-screen__actions">
-              <button
-                className="btn btn-secondary"
-                onClick={() => setProject(null)}
-                id="btn-back-home"
-              >
-                ← Back
-              </button>
-            </div>
+
+            {/* Recent projects */}
+            {projects.length > 0 && (
+              <div className="recent-projects fade-in" id="recent-projects">
+                <h2 style={{
+                  fontSize: 'var(--text-sm)',
+                  color: 'var(--text-tertiary)',
+                  fontWeight: 'var(--weight-medium)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  marginBottom: 'var(--space-3)',
+                }}>
+                  Recent Projects
+                </h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                  {projects.slice(0, 5).map((project) => (
+                    <button
+                      key={project.id}
+                      className="btn btn-secondary"
+                      onClick={() => openProject(project.id)}
+                      style={{ justifyContent: 'flex-start', textAlign: 'left' }}
+                      id={`project-${project.id}`}
+                    >
+                      <FolderOpen size={14} />
+                      <span className="truncate" style={{ flex: 1 }}>{project.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
