@@ -37,15 +37,17 @@ const useProjectStore = create((set, get) => ({
   },
 
   /**
-   * Create a new project and set it as active.
+   * Create a new project/folder.
    * @param {string} name - Project name
+   * @param {number} [parentId=0] - Parent folder ID (0 = root)
    * @returns {number} The new project ID
    */
-  createProject: async (name) => {
+  createProject: async (name, parentId = 0) => {
     const now = new Date().toISOString();
     try {
       const id = await db.projects.add({
         name,
+        parentId,
         createdAt: now,
         updatedAt: now,
       });
@@ -183,6 +185,45 @@ const useProjectStore = create((set, get) => ({
       console.error('Failed to add document:', err);
       set({ error: err.message });
       return null;
+    }
+  },
+
+  /**
+   * Add a PDF document at the root/home level (no project).
+   * Uses projectId=0 as a sentinel for "root level".
+   * @param {File} file - The PDF File object
+   * @returns {number} The new document ID
+   */
+  addRootDocument: async (file) => {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const now = new Date().toISOString();
+
+      const id = await db.documents.add({
+        projectId: 0,
+        fileName: file.name,
+        fileData: arrayBuffer,
+        pageCount: 0,
+        createdAt: now,
+      });
+
+      return id;
+    } catch (err) {
+      console.error('Failed to add root document:', err);
+      return null;
+    }
+  },
+
+  /**
+   * Load root-level documents (projectId = 0).
+   * @returns {Array}
+   */
+  loadRootDocuments: async () => {
+    try {
+      return await db.documents.where('projectId').equals(0).toArray();
+    } catch (err) {
+      console.error('Failed to load root docs:', err);
+      return [];
     }
   },
 

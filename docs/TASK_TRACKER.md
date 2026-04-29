@@ -17,40 +17,41 @@
 - [x] searchStore.js
 - [x] useAutoSave.js hook
 
-## Phase 3: PDF Viewer
-- [ ] PDFViewer.jsx
-- [ ] PDFPage.jsx
-- [ ] PDFTextLayer.jsx
-- [ ] PDFThumbnails.jsx
-- [ ] PDFSearch.jsx
-- [ ] PDFOutline.jsx
-- [ ] usePDFDocument.js
-- [ ] useTextSelection.js
+## Phase 3: PDF Viewer ✅
+- [x] PDFViewer.jsx — main container, loads pdfjs document
+- [x] PDFPage.jsx — renders single page to canvas + overlays
+- [x] PDFTextLayer.jsx — transparent text divs for selection
+- [x] PDFThumbnails.jsx — page thumbnail sidebar
+- [x] PDFSearch.jsx — in-document search with match highlighting
+- [x] PDFOutline.jsx — TOC/bookmark tree from PDF metadata
+- [x] usePDFDocument.js — pdfjs document lifecycle hook
+- [x] useTextSelection.js — tracks text selection in PDF pageshlighting
 
-## Phase 4: Annotations & Highlighting
-- [ ] HighlightLayer.jsx
-- [ ] InkCanvas.jsx
-- [ ] NotePopover.jsx
-- [ ] ColorPicker.jsx
-- [ ] useAnnotations.js
+## Phase 4: Annotations & Highlighting ✅
+- [x] HighlightLayer.jsx
+- [x] InkCanvas.jsx
+- [x] NotePopover.jsx
+- [x] ColorPicker.jsx
+- [x] useAnnotations.js
+- [x] SelectionActionBar.jsx
 
-## Phase 5: Active Workspace Canvas
-- [ ] WorkspaceCanvas.jsx
-- [ ] ExcerptNode.jsx
-- [ ] GroupNode.jsx
-- [ ] ConnectionEdge.jsx
-- [ ] WorkspaceToolbar.jsx
-- [ ] useDragToWorkspace.js
+## Phase 5: Active Workspace Canvas ✅
+- [x] WorkspaceCanvas.jsx
+- [x] ExcerptNode.jsx
+- [x] GroupNode.jsx
+- [x] ConnectionEdge.jsx
+- [x] WorkspaceToolbar.jsx
+- [x] useDragToWorkspace.js
 
-## Phase 6: Deep Links & Hyperlinks
-- [ ] deepLinkUtils.js
-- [ ] Hyperlink UI in annotations and excerpts
+## Phase 6: Deep Links & Hyperlinks ✅
+- [x] deepLinkUtils.js (logic handled within pdfStore instead)
+- [x] Hyperlink UI in annotations and excerpts
 
-## Phase 7: Project Management & File Upload
-- [ ] FileUpload.jsx
-- [ ] ProjectManager.jsx
-- [ ] DocumentTabs.jsx
-- [ ] exportUtils.js
+## Phase 7: Project Management & File Upload ✅
+- [x] FileUpload.jsx
+- [x] ProjectManager.jsx
+- [x] DocumentTabs.jsx
+- [x] exportUtils.js
 
 ## Phase 8: Global Search (Secondary Feature)
 - [ ] GlobalSearch.jsx (Cmd+K)

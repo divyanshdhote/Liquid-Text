@@ -19,6 +19,10 @@ const usePdfStore = create((set, get) => ({
   searchQuery: '',
   searchResults: [],    // Array of { pageNumber, matchIndex }
   activeSearchIndex: -1,
+  isSearchOpen: false,
+
+  // Deep linking
+  jumpTarget: null,    // { pageNumber, rects, timestamp }
 
   // View mode
   viewMode: 'scroll',  // 'scroll' | 'single-page'
@@ -175,6 +179,26 @@ const usePdfStore = create((set, get) => ({
    */
   setTotalPages: (totalPages) => {
     set({ totalPages });
+  },
+
+  setSearchState: (state) => set(state),
+
+  /**
+   * Toggle search UI
+   */
+  setSearchOpen: (isOpen) => set({ isSearchOpen: isOpen }),
+
+  /**
+   * Deep link to a specific source in the PDF.
+   */
+  jumpToSource: (pageNumber, rects) => {
+    set({
+      jumpTarget: {
+        pageNumber,
+        rects,
+        timestamp: Date.now(),
+      },
+    });
   },
 }));
 
