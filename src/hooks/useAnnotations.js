@@ -31,9 +31,10 @@ export default function useAnnotations(documentId, projectId) {
     pageNumber,
     type,
     color,
+    linkedExcerptId,
   }) => {
     if (!selectedText || !selectedRects.length || !pageNumber) return null;
-    if (!documentId || !projectId) return null;
+    if (!documentId || projectId === undefined || projectId === null) return null;
 
     const annotation = await addHighlight({
       documentId,
@@ -43,6 +44,7 @@ export default function useAnnotations(documentId, projectId) {
       color: color || activeColor || 'yellow',
       rects: selectedRects,
       selectedText,
+      linkedExcerptId: linkedExcerptId || null,
     });
 
     // Clear the browser selection after highlighting
@@ -66,7 +68,7 @@ export default function useAnnotations(documentId, projectId) {
     strokeWidth,
   }) => {
     if (!points || points.length < 2) return null;
-    if (!documentId || !projectId) return null;
+    if (!documentId || projectId === undefined || projectId === null) return null;
 
     return await addInkStroke({
       documentId,

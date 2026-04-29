@@ -31,7 +31,6 @@ export default function PDFViewer({ fileData, fileName, documentId, projectId })
   const scrollContainerRef = useRef(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarTab, setSidebarTab] = useState('thumbnails');
-  const [searchOpen, setSearchOpen] = useState(false);
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
 
   // Annotation UI state
@@ -44,9 +43,24 @@ export default function PDFViewer({ fileData, fileName, documentId, projectId })
 
   // PDF view state
   const {
-    currentPage, zoom, toolMode, activeColor,
-    setActiveDocument, goToPage, nextPage, prevPage,
-    zoomIn, zoomOut, setTotalPages, setToolMode, setActiveColor,
+    activeDocumentId,
+    currentPage,
+    zoom,
+    setActiveDocument,
+    closeDocument,
+    setTotalPages,
+    isSearchOpen,
+    setSearchOpen,
+    goToPage,
+    nextPage,
+    prevPage,
+    zoomIn,
+    zoomOut,
+    toolMode,
+    activeColor,
+    jumpTarget,
+    setToolMode,
+    setActiveColor,
   } = usePdfStore();
 
   // Annotations & Workspace
@@ -112,6 +126,42 @@ export default function PDFViewer({ fileData, fileName, documentId, projectId })
       setSelectionBarPosition(null);
     }
   }, [selectedText, selectedRects, selectionPageNumber, toolMode, createHighlightFromSelection, clearSelection]);
+
+  // Handle Deep Linking / Jump to Source
+  useEffect(() => {
+    if (!jumpTarget || !scrollContainerRef.current) return;
+
+    // 1. Ensure we are on the right page
+    goToPage(jumpTarget.pageNumber);
+
+    // 2. Wait for rendering, then scroll to exact offset
+    setTimeout(() => {
+      const container = scrollContainerRef.current;
+      const pageEl = document.getElementById(`pdf-page-${jumpTarget.pageNumber}`);
+      
+      if (pageEl && container) {
+        const firstRect = jumpTarget.rects?.[0];
+        if (firstRect) {
+          const pageRect = pageEl.getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
+          
+          // Calculate desired scroll top
+          // It's the current scroll + distance from container top to page top + distance down the page - padding
+          const targetScrollTop = container.scrollTop + 
+                                 (pageRect.top - containerRect.top) + 
+                                 (firstRect.y * pageRect.height) - 100;
+          
+          container.scrollTo({
+            top: targetScrollTop,
+            behavior: 'smooth'
+          });
+        } else {
+          // If no rects, just scroll to the top of the page
+          pageEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+    }, 150); // slight delay to ensure page element is mounted and styled
+  }, [jumpTarget, goToPage]);
 
   // Scroll tracking
   const handleScroll = useCallback(() => {
@@ -192,6 +242,21 @@ export default function PDFViewer({ fileData, fileName, documentId, projectId })
   }, [selectedText, selectedRects, selectionPageNumber, createHighlightFromSelection, clearSelection]);
 
   const handleHighlightClick = useCallback((annotation) => {
+    // If this highlight is linked to an excerpt, focus that excerpt in the workspace
+    if (annotation.linkedExcerptId) {
+      const { nodes, setNodes } = useWorkspaceStore.getState();
+      const excerptNodeId = `excerpt-${annotation.linkedExcerptId}`;
+      // Select the excerpt node in the workspace
+      setNodes(
+        nodes.map((n) => ({
+          ...n,
+          selected: n.id === excerptNodeId,
+        }))
+      );
+      return;
+    }
+
+    // Normal highlight — show note popover
     setSelectedAnnotation(annotation);
 
     // Find the annotation's position on screen for the popover
@@ -279,196 +344,13 @@ export default function PDFViewer({ fileData, fileName, documentId, projectId })
 
   return (
     <div className="pdf-viewer" id="pdf-viewer">
-      {/* Sidebar */}
-      {sidebarOpen && (
-        <div className="pdf-sidebar slide-in-right" id="pdf-sidebar">
-          <div className="pdf-sidebar__tabs">
-            <button
-              className={`pdf-sidebar__tab ${sidebarTab === 'thumbnails' ? 'pdf-sidebar__tab--active' : ''}`}
-              onClick={() => setSidebarTab('thumbnails')}
-              title="Page Thumbnails"
-              id="tab-thumbnails"
-            >
-              Pages
-            </button>
-            {outline && outline.length > 0 && (
-              <button
-                className={`pdf-sidebar__tab ${sidebarTab === 'outline' ? 'pdf-sidebar__tab--active' : ''}`}
-                onClick={() => setSidebarTab('outline')}
-                title="Table of Contents"
-                id="tab-outline"
-              >
-                Outline
-              </button>
-            )}
-          </div>
-
-          <div className="pdf-sidebar__content">
-            {sidebarTab === 'thumbnails' && (
-              <PDFThumbnails
-                pdfDoc={pdfDoc}
-                pageCount={pageCount}
-                currentPage={currentPage}
-                onPageClick={handleThumbnailClick}
-              />
-            )}
-            {sidebarTab === 'outline' && outline && (
-              <PDFOutline
-                outline={outline}
-                onItemClick={handleOutlineClick}
-              />
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Main viewing area */}
       <div className="pdf-viewer__main">
-        {/* Toolbar */}
-        <div className="pdf-toolbar" id="pdf-toolbar">
-          <button
-            className="btn btn-ghost btn-icon"
-            onClick={() => setSidebarOpen((prev) => !prev)}
-            title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-            id="btn-toggle-sidebar"
-          >
-            {sidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeft size={16} />}
-          </button>
 
-          <div className="pdf-toolbar__divider" />
 
-          {/* Tool mode controls */}
-          <div className="pdf-toolbar__tools">
-            <button
-              className={`btn btn-ghost btn-icon ${toolMode === 'select' ? 'btn--active' : ''}`}
-              onClick={() => setToolMode('select')}
-              title="Select (V)"
-              data-tooltip="Select (V)"
-              data-tooltip-pos="bottom"
-              id="btn-tool-select"
-            >
-              <MousePointer2 size={16} />
-            </button>
-            <button
-              className={`btn btn-ghost btn-icon ${toolMode === 'highlight' ? 'btn--active' : ''}`}
-              onClick={() => setToolMode('highlight')}
-              data-tooltip="Highlight (H)"
-              data-tooltip-pos="bottom"
-              id="btn-tool-highlight"
-            >
-              <Highlighter size={16} />
-            </button>
-            <button
-              className={`btn btn-ghost btn-icon ${toolMode === 'ink' ? 'btn--active' : ''}`}
-              onClick={() => setToolMode('ink')}
-              data-tooltip="Draw (P)"
-              data-tooltip-pos="bottom"
-              id="btn-tool-ink"
-            >
-              <PenLine size={16} />
-            </button>
-
-            {/* Color swatch — click to toggle color picker */}
-            <button
-              className="btn btn-ghost btn-icon color-swatch-btn"
-              onClick={() => setColorPickerOpen((prev) => !prev)}
-              title="Color"
-              id="btn-color-swatch"
-            >
-              <div
-                className="color-swatch-preview"
-                style={{ '--swatch-color': getColorHex(activeColor) }}
-              />
-            </button>
-          </div>
-
-          {/* Color picker dropdown */}
-          {colorPickerOpen && (
-            <div className="color-picker-dropdown fade-in-scale" id="color-picker-dropdown">
-              <ColorPicker
-                activeColor={activeColor}
-                onColorSelect={(color) => {
-                  setActiveColor(color);
-                  setColorPickerOpen(false);
-                }}
-                compact
-              />
-            </div>
-          )}
-
-          <div className="pdf-toolbar__divider" />
-
-          {/* Page navigation */}
-          <div className="pdf-toolbar__page-nav">
-            <button
-              className="btn btn-ghost btn-icon"
-              onClick={prevPage}
-              disabled={currentPage <= 1}
-              title="Previous page"
-              id="btn-prev-page"
-            >
-              <ChevronUp size={16} />
-            </button>
-            <span className="pdf-toolbar__page-info">
-              <input
-                type="number"
-                className="pdf-toolbar__page-input"
-                value={currentPage}
-                min={1}
-                max={pageCount}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value, 10);
-                  if (val >= 1 && val <= pageCount) {
-                    goToPage(val);
-                    scrollToPage(val);
-                  }
-                }}
-                id="input-page-number"
-              />
-              <span className="pdf-toolbar__page-total">/ {pageCount}</span>
-            </span>
-            <button
-              className="btn btn-ghost btn-icon"
-              onClick={nextPage}
-              disabled={currentPage >= pageCount}
-              title="Next page"
-              id="btn-next-page"
-            >
-              <ChevronDown size={16} />
-            </button>
-          </div>
-
-          <div className="pdf-toolbar__divider" />
-
-          {/* Zoom controls */}
-          <div className="pdf-toolbar__zoom">
-            <button
-              className="btn btn-ghost btn-icon"
-              onClick={zoomOut}
-              disabled={zoom <= 0.25}
-              data-tooltip="Zoom out"
-              data-tooltip-pos="bottom"
-              id="btn-zoom-out"
-            >
-              <ZoomOut size={16} />
-            </button>
-            <span className="pdf-toolbar__zoom-value">{zoomPercent}%</span>
-            <button
-              className="btn btn-ghost btn-icon"
-              onClick={zoomIn}
-              disabled={zoom >= 5.0}
-              data-tooltip="Zoom in"
-              data-tooltip-pos="bottom"
-              id="btn-zoom-in"
-            >
-              <ZoomIn size={16} />
-            </button>
-          </div>
-
-          <div className="pdf-toolbar__spacer" />
-
-          {/* Search — inline in toolbar */}
-          {searchOpen ? (
+        {/* Floating Search */}
+        {isSearchOpen && (
+          <div className="pdf-floating-search fade-in-scale">
             <PDFSearch
               pdfDoc={pdfDoc}
               pageCount={pageCount}
@@ -478,18 +360,8 @@ export default function PDFViewer({ fileData, fileName, documentId, projectId })
                 scrollToPage(pageNum);
               }}
             />
-          ) : (
-            <button
-              className="btn btn-ghost btn-icon"
-              onClick={() => setSearchOpen(true)}
-              data-tooltip="Search (Ctrl+F)"
-              data-tooltip-pos="bottom"
-              id="btn-search-toggle"
-            >
-              <Search size={16} />
-            </button>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Scrollable pages container */}
         <div
@@ -524,9 +396,23 @@ export default function PDFViewer({ fileData, fileName, documentId, projectId })
         onHighlight={() => handleCreateAnnotation('highlight')}
         onUnderline={() => handleCreateAnnotation('underline')}
         onStrikethrough={() => handleCreateAnnotation('strikethrough')}
-        onSendToWorkspace={() => {
-          if (documentId && projectId && selectedText && selectedRects && selectionPageNumber) {
-            addExcerpt({
+        activeColor={activeColor}
+        onColorSelect={setActiveColor}
+        onCopyText={() => {
+          if (selectedText) {
+            navigator.clipboard.writeText(selectedText);
+          }
+          clearSelection();
+          setSelectionBarPosition(null);
+        }}
+        onAddNote={() => {
+          // Create a highlight first, then we can open the note popover
+          handleCreateAnnotation('highlight');
+        }}
+        onSendToWorkspace={async () => {
+          if (documentId && projectId !== undefined && selectedText && selectedRects && selectionPageNumber) {
+            // Create the excerpt first to get its DB ID
+            const excerptNode = await addExcerpt({
               documentId,
               projectId,
               text: selectedText,
@@ -535,6 +421,18 @@ export default function PDFViewer({ fileData, fileName, documentId, projectId })
               color: activeColor || 'yellow',
               fileName,
             });
+
+            // Create a linked gray highlight on the PDF
+            if (excerptNode?.data?.dbId) {
+              createHighlightFromSelection({
+                selectedText,
+                selectedRects,
+                pageNumber: selectionPageNumber,
+                type: 'highlight',
+                color: 'gray',
+                linkedExcerptId: excerptNode.data.dbId,
+              });
+            }
           }
           clearSelection();
           setSelectionBarPosition(null);
@@ -558,6 +456,7 @@ function getColorHex(name) {
   const map = {
     yellow: '#facc15', green: '#34d399', blue: '#60a5fa', pink: '#f472b6',
     orange: '#fb923c', purple: '#a78bfa', red: '#f87171', teal: '#2dd4bf',
+    gray: '#9ca3af',
   };
   return map[name] || '#facc15';
 }

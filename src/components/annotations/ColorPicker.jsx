@@ -16,6 +16,7 @@ const COLORS = [
   { name: 'purple', hex: '#a78bfa', label: 'Purple' },
   { name: 'red', hex: '#f87171', label: 'Red' },
   { name: 'teal', hex: '#2dd4bf', label: 'Teal' },
+  { name: 'gray', hex: '#9ca3af', label: 'Gray' },
 ];
 
 export default function ColorPicker({ activeColor = 'yellow', onColorSelect, compact = false }) {

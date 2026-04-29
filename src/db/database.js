@@ -37,4 +37,14 @@ db.version(1).stores({
   tags: '++id, projectId, name',
 });
 
+// Version 2: Add linkedExcerptId index to annotations for excerpt-highlight linking
+db.version(2).stores({
+  annotations: '++id, documentId, projectId, type, pageNumber, color, createdAt, *tags, linkedExcerptId',
+});
+
+// Version 3: Add parentId index to projects for nested folders
+db.version(3).stores({
+  projects: '++id, name, parentId, createdAt, updatedAt',
+});
+
 export default db;

@@ -43,15 +43,15 @@
 - [x] WorkspaceToolbar.jsx
 - [x] useDragToWorkspace.js
 
-## Phase 6: Deep Links & Hyperlinks
-- [ ] deepLinkUtils.js
-- [ ] Hyperlink UI in annotations and excerpts
+## Phase 6: Deep Links & Hyperlinks ✅
+- [x] deepLinkUtils.js (logic handled within pdfStore instead)
+- [x] Hyperlink UI in annotations and excerpts
 
-## Phase 7: Project Management & File Upload
-- [ ] FileUpload.jsx
-- [ ] ProjectManager.jsx
-- [ ] DocumentTabs.jsx
-- [ ] exportUtils.js
+## Phase 7: Project Management & File Upload ✅
+- [x] FileUpload.jsx
+- [x] ProjectManager.jsx
+- [x] DocumentTabs.jsx
+- [x] exportUtils.js
 
 ## Phase 8: Global Search (Secondary Feature)
 - [ ] GlobalSearch.jsx (Cmd+K)

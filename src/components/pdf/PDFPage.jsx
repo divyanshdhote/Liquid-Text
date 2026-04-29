@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, memo } from 'react';
 import PDFTextLayer from './PDFTextLayer.jsx';
 import HighlightLayer from '../annotations/HighlightLayer.jsx';
 import InkCanvas from '../annotations/InkCanvas.jsx';
+import usePdfStore from '../../stores/pdfStore.js';
 
 /**
  * PDFPage — Renders a single PDF page.
@@ -44,6 +45,7 @@ const PDFPage = memo(function PDFPage({
   const [viewport, setViewport] = useState(null);
   const [isRendering, setIsRendering] = useState(false);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const { jumpTarget } = usePdfStore();
 
   // Load the page proxy
   useEffect(() => {
@@ -185,6 +187,24 @@ const PDFPage = memo(function PDFPage({
           <div className="skeleton" style={{ width: '60%', height: 12, marginBottom: 8 }} />
           <div className="skeleton" style={{ width: '80%', height: 12, marginBottom: 8 }} />
           <div className="skeleton" style={{ width: '45%', height: 12 }} />
+        </div>
+      )}
+
+      {/* Jump Target Flash Overlay */}
+      {jumpTarget?.pageNumber === pageNumber && jumpTarget.rects?.length > 0 && (
+        <div className="jump-flash-layer" key={jumpTarget.timestamp}>
+          {jumpTarget.rects.map((r, i) => (
+             <div 
+               key={i} 
+               className="jump-flash-rect" 
+               style={{
+                 left: `${r.x * 100}%`,
+                 top: `${r.y * 100}%`,
+                 width: `${r.width * 100}%`,
+                 height: `${r.height * 100}%`
+               }} 
+             />
+          ))}
         </div>
       )}
 

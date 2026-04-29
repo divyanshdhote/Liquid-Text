@@ -1,42 +1,73 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { FileUp, Upload, FolderOpen, Droplets, ArrowLeft, X } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Droplets, X } from 'lucide-react';
 import PDFViewer from './components/pdf/PDFViewer.jsx';
 import WorkspaceCanvas from './components/workspace/WorkspaceCanvas.jsx';
 import SplitPane from './components/layout/SplitPane.jsx';
+import ViewerToolbar from './components/layout/ViewerToolbar.jsx';
+import ProjectManager from './components/project/ProjectManager.jsx';
 import useProjectStore from './stores/projectStore.js';
+import db from './db/database.js';
 
 export default function App() {
-  const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Project store
   const {
     projects,
     activeProjectId,
     documents,
-    isLoading,
     loadProjects,
     createProject,
     openProject,
     closeProject,
     addDocument,
+    addRootDocument,
     getDocumentFileData,
     deleteProject,
+    removeDocument,
   } = useProjectStore();
 
-  // Active document state (which PDF is being viewed)
+  // Active document state
   const [activeDocId, setActiveDocId] = useState(null);
   const [activeFileData, setActiveFileData] = useState(null);
   const [activeFileName, setActiveFileName] = useState('');
+
+  // Navigation stack: [{id, name}] — empty = root
+  const [folderPath, setFolderPath] = useState([]);
+  // Items in the current folder
+  const [currentFolders, setCurrentFolders] = useState([]);
+  const [currentDocs, setCurrentDocs] = useState([]);
+
+  const currentFolderId = folderPath.length > 0 ? folderPath[folderPath.length - 1].id : null;
 
   // Load projects on mount
   useEffect(() => {
     loadProjects();
   }, [loadProjects]);
 
-  // When documents change and we don't have an active doc, open the first one
+  // Load current folder contents whenever path changes
+  const refreshCurrentFolder = useCallback(async () => {
+    const parentId = currentFolderId || 0;
+    // Load sub-folders
+    const subFolders = await db.projects.where('parentId').equals(parentId).toArray();
+    // Also include folders with no parentId field (legacy) at root
+    if (parentId === 0) {
+      const legacyFolders = await db.projects.filter((p) => p.parentId === undefined || p.parentId === null).toArray();
+      const allIds = new Set(subFolders.map((f) => f.id));
+      legacyFolders.forEach((f) => { if (!allIds.has(f.id)) subFolders.push(f); });
+    }
+    setCurrentFolders(subFolders);
+    // Load docs in this folder (use projectId = parentId, where 0 = root)
+    const docs = await db.documents.where('projectId').equals(parentId).toArray();
+    setCurrentDocs(docs);
+  }, [currentFolderId]);
+
   useEffect(() => {
-    if (documents.length > 0 && !activeDocId) {
+    refreshCurrentFolder();
+  }, [refreshCurrentFolder]);
+
+  // Auto-open first doc when project documents change
+  useEffect(() => {
+    if (activeProjectId && documents.length > 0 && !activeDocId) {
       loadDocument(documents[0]);
     }
   }, [documents]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -48,53 +79,66 @@ export default function App() {
     setActiveFileData(data);
   };
 
-  const handleDragOver = useCallback((e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(true);
-  }, []);
+  // Navigate into a folder
+  const handleEnterFolder = async (folderId) => {
+    const folder = await db.projects.get(folderId);
+    setFolderPath((prev) => [...prev, { id: folderId, name: folder?.name || 'Folder' }]);
+  };
 
-  const handleDragLeave = useCallback((e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-  }, []);
+  // Navigate back one level
+  const handleNavigateBack = () => {
+    setFolderPath((prev) => prev.slice(0, -1));
+  };
 
-  const handleDrop = useCallback(async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
+  const handleNavigateToRoot = () => {
+    setFolderPath([]);
+  };
 
-    const files = Array.from(e.dataTransfer.files).filter(
-      (f) => f.type === 'application/pdf'
-    );
-    if (files.length > 0) {
-      await handleFiles(files);
+  const handleNavigateToPath = (index) => {
+    setFolderPath((prev) => prev.slice(0, index + 1));
+  };
+
+  // Open a document from the file browser
+  const handleOpenDocFromBrowser = async (doc) => {
+    const folderId = currentFolderId || 0;
+    if (folderId !== 0) {
+      await openProject(folderId);
     }
-  }, [activeProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+    setActiveDocId(doc.id);
+    setActiveFileName(doc.fileName);
+    const data = await getDocumentFileData(doc.id);
+    setActiveFileData(data);
+  };
 
-  const handleFileSelect = useCallback(async (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length > 0) {
-      await handleFiles(files);
-    }
-    e.target.value = '';
-  }, [activeProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Create a folder at the current level
+  const handleCreateFolder = async (name) => {
+    const parentId = currentFolderId || 0;
+    await createProject(name, parentId);
+    closeProject(); // don't auto-activate
+    await refreshCurrentFolder();
+    await loadProjects(); // refresh global list
+  };
 
+  // File handling
   const handleFiles = async (files) => {
-    let projectId = activeProjectId;
+    const folderId = activeProjectId || currentFolderId;
 
-    // If no project is active, create one named after the first file
-    if (!projectId) {
-      const name = files[0].name.replace('.pdf', '');
-      projectId = await createProject(name);
-      if (!projectId) return;
+    if (!folderId) {
+      // Root level upload
+      for (const file of files) {
+        await addRootDocument(file);
+      }
+      await refreshCurrentFolder();
+      return;
     }
 
-    // Add each file to the project
+    // Inside a folder
+    if (currentFolderId && !activeProjectId) {
+      await openProject(currentFolderId);
+    }
+
     for (const file of files) {
       const docId = await addDocument(file);
-      // Open the first uploaded document
       if (docId && !activeDocId) {
         const data = await file.arrayBuffer();
         setActiveDocId(docId);
@@ -104,83 +148,46 @@ export default function App() {
     }
   };
 
-  const openFilePicker = () => {
-    fileInputRef.current?.click();
+  const handleTabClick = (doc) => {
+    if (doc.id !== activeDocId) loadDocument(doc);
+  };
+
+  const handleTabClose = async (docId) => {
+    await removeDocument(docId);
+    if (docId === activeDocId) {
+      const remaining = documents.filter((d) => d.id !== docId);
+      if (remaining.length > 0) {
+        loadDocument(remaining[0]);
+      } else {
+        setActiveDocId(null);
+        setActiveFileData(null);
+        setActiveFileName('');
+      }
+    }
   };
 
   const handleBackToHome = () => {
     closeProject();
+    setFolderPath([]);
     setActiveDocId(null);
     setActiveFileData(null);
     setActiveFileName('');
   };
 
-  const isViewingPDF = activeProjectId && activeDocId && activeFileData;
+  const isViewingPDF = activeDocId && activeFileData;
 
   return (
     <div className="app-container">
-      {/* ---- Top Toolbar ---- */}
-      <header className="app-toolbar" id="main-toolbar">
-        <div className="app-toolbar__logo">
-          <div className="app-toolbar__logo-icon">
-            <Droplets size={14} color="#0a0f1e" strokeWidth={2.5} />
-          </div>
-          <span>LiquidText</span>
-        </div>
+      {/* Toolbar — only when viewing a PDF */}
+      {isViewingPDF && (
+        <ViewerToolbar
+          fileName={activeFileName}
+          onHome={handleBackToHome}
+        />
+      )}
 
-        {/* Show active project name */}
-        {activeProjectId && (
-          <>
-            <div className="app-toolbar__divider" />
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-              {activeFileName}
-            </span>
-          </>
-        )}
-
-        <div className="app-toolbar__spacer" />
-
-        <div className="app-toolbar__group">
-          {activeProjectId && (
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={openFilePicker}
-              id="btn-add-pdf"
-              title="Add another PDF"
-            >
-              <FileUp size={15} />
-              Add PDF
-            </button>
-          )}
-          {!activeProjectId && (
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={openFilePicker}
-              id="btn-open-pdf"
-            >
-              <FolderOpen size={15} />
-              Open PDF
-            </button>
-          )}
-          {activeProjectId && (
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={handleBackToHome}
-              id="btn-close-project"
-              data-tooltip="Close project"
-              data-tooltip-pos="bottom"
-            >
-              <X size={15} />
-              Close
-            </button>
-          )}
-        </div>
-      </header>
-
-      {/* ---- Main Content ---- */}
       <main className="app-main" id="main-content">
         {isViewingPDF ? (
-          /* Main Workspace View */
           <SplitPane
             initialLeftWidth={50}
             left={
@@ -188,103 +195,45 @@ export default function App() {
                 fileData={activeFileData}
                 fileName={activeFileName}
                 documentId={activeDocId}
-                projectId={activeProjectId}
+                projectId={activeProjectId || 0}
               />
             }
             right={
-              <WorkspaceCanvas projectId={activeProjectId} />
+              <WorkspaceCanvas projectId={activeProjectId || 0} />
             }
           />
         ) : (
-          /* Welcome / Empty State */
-          <div className="welcome-screen fade-in">
-            <div className="welcome-screen__icon">
-              <Droplets size={36} color="#0a0f1e" strokeWidth={2} />
-            </div>
-
-            <h1 className="welcome-screen__title">
-              Welcome to LiquidText
-            </h1>
-
-            <p className="welcome-screen__subtitle">
-              Upload a PDF to start reading, highlighting, and building
-              visual connections between your ideas.
-            </p>
-
-            <div
-              className={`drop-zone ${isDragOver ? 'drop-zone--active' : ''}`}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              onClick={openFilePicker}
-              id="drop-zone"
-            >
-              <div className="drop-zone__icon">
-                {isDragOver ? (
-                  <Upload size={32} />
-                ) : (
-                  <FileUp size={32} />
-                )}
-              </div>
-              <div className="drop-zone__text">
-                <strong>Click to browse</strong> or drag &amp; drop your PDF here
-              </div>
-              <div className="drop-zone__hint">
-                Supports .pdf files
-              </div>
-            </div>
-
-            <div className="welcome-screen__actions">
-              <button
-                className="btn btn-primary btn-lg"
-                onClick={openFilePicker}
-                id="btn-upload-pdf"
-              >
-                <FileUp size={18} />
-                Upload PDF
-              </button>
-            </div>
-
-            {/* Recent projects */}
-            {projects.length > 0 && (
-              <div className="recent-projects fade-in" id="recent-projects">
-                <h2 style={{
-                  fontSize: 'var(--text-sm)',
-                  color: 'var(--text-tertiary)',
-                  fontWeight: 'var(--weight-medium)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                  marginBottom: 'var(--space-3)',
-                }}>
-                  Recent Projects
-                </h2>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-                  {projects.slice(0, 5).map((project) => (
-                    <button
-                      key={project.id}
-                      className="btn btn-secondary"
-                      onClick={() => openProject(project.id)}
-                      style={{ justifyContent: 'flex-start', textAlign: 'left' }}
-                      id={`project-${project.id}`}
-                    >
-                      <FolderOpen size={14} />
-                      <span className="truncate" style={{ flex: 1 }}>{project.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+          <ProjectManager
+            folders={currentFolders}
+            documents={currentDocs}
+            folderPath={folderPath}
+            onEnterFolder={handleEnterFolder}
+            onNavigateBack={handleNavigateBack}
+            onDeleteFolder={async (id) => {
+              await deleteProject(id);
+              await refreshCurrentFolder();
+            }}
+            onCreateFolder={handleCreateFolder}
+            onOpenFile={() => fileInputRef.current?.click()}
+            onOpenDocument={handleOpenDocFromBrowser}
+            onDeleteDocument={async (docId) => {
+              await removeDocument(docId);
+              await refreshCurrentFolder();
+            }}
+          />
         )}
       </main>
 
-      {/* Hidden file input */}
       <input
         ref={fileInputRef}
         type="file"
         accept=".pdf,application/pdf"
         multiple
-        onChange={handleFileSelect}
+        onChange={async (e) => {
+          const files = Array.from(e.target.files);
+          if (files.length > 0) await handleFiles(files);
+          e.target.value = '';
+        }}
         style={{ display: 'none' }}
         id="hidden-file-input"
       />

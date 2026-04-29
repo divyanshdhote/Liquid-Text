@@ -52,6 +52,7 @@ const useWorkspaceStore = create((set, get) => ({
         },
         style: {
           width: e.width || 220,
+          ...(e.height ? { height: e.height } : {}),
         },
       }));
 
@@ -118,10 +119,13 @@ const useWorkspaceStore = create((set, get) => ({
   addExcerpt: async ({ documentId, projectId, text, sourcePageNumber, sourceRects, color = 'yellow', fileName = '' }) => {
     const now = new Date().toISOString();
     
-    // Position new excerpts with slight offset to avoid stacking
+    // Position excerpts sequentially on the left side of the canvas.
+    // Each new excerpt appears directly below the last one.
     const existingNodes = get().nodes;
-    const offsetX = 50 + (existingNodes.length % 5) * 30;
-    const offsetY = 50 + (existingNodes.length % 5) * 30;
+    const excerptNodes = existingNodes.filter(n => n.type === 'excerpt');
+    
+    const offsetX = 50;
+    const offsetY = excerptNodes.length * 80;
 
     const excerpt = {
       documentId,
@@ -169,6 +173,27 @@ const useWorkspaceStore = create((set, get) => ({
   },
 
   /**
+   * Update an excerpt's text content (for inline editing).
+   * @param {number} dbId - Dexie database ID of the excerpt
+   * @param {string} newText - Updated text content
+   */
+  updateExcerptText: async (dbId, newText) => {
+    try {
+      await db.excerpts.update(dbId, { text: newText });
+
+      set((state) => ({
+        nodes: state.nodes.map((n) =>
+          n.data?.dbId === dbId
+            ? { ...n, data: { ...n.data, text: newText } }
+            : n
+        ),
+      }));
+    } catch (err) {
+      console.error('Failed to update excerpt text:', err);
+    }
+  },
+
+  /**
    * Update node positions (called by React Flow on drag).
    * Also persists to Dexie.
    * @param {Array} changes - React Flow node changes
@@ -179,7 +204,7 @@ const useWorkspaceStore = create((set, get) => ({
     set((state) => {
       const updatedNodes = applyChangesLocally(state.nodes, changes);
       
-      // Persist position changes to Dexie
+      // Persist position and dimension changes to Dexie
       changes.forEach((change) => {
         if (change.type === 'position' && change.position) {
           const node = updatedNodes.find((n) => n.id === change.id);
@@ -195,6 +220,15 @@ const useWorkspaceStore = create((set, get) => ({
                 y: change.position.y,
               }).catch(console.error);
             }
+          }
+        }
+        if (change.type === 'dimensions' && change.dimensions) {
+          const node = updatedNodes.find((n) => n.id === change.id);
+          if (node?.data?.dbId && node.type === 'excerpt') {
+            db.excerpts.update(node.data.dbId, {
+              width: change.dimensions.width,
+              height: change.dimensions.height,
+            }).catch(console.error);
           }
         }
       });
@@ -306,20 +340,38 @@ const useWorkspaceStore = create((set, get) => ({
   },
 
   /**
-   * Delete an excerpt node.
+   * Delete an excerpt node and its linked annotation.
    * @param {string} nodeId - React Flow node ID
    */
   deleteExcerpt: async (nodeId) => {
     const node = get().nodes.find((n) => n.id === nodeId);
     if (node?.data?.dbId && node.type === 'excerpt') {
       try {
-        // Delete excerpt and its connections
-        await db.excerpts.delete(node.data.dbId);
+        const dbId = node.data.dbId;
+
+        // Delete excerpt from DB
+        await db.excerpts.delete(dbId);
+
+        // Delete connections involving this excerpt
         const connToDelete = await db.connections
-          .where('sourceExcerptId').equals(node.data.dbId)
-          .or('targetExcerptId').equals(node.data.dbId)
+          .where('sourceExcerptId').equals(dbId)
+          .or('targetExcerptId').equals(dbId)
           .toArray();
         await Promise.all(connToDelete.map((c) => db.connections.delete(c.id)));
+
+        // Delete linked annotations (gray highlights created by AutoExcerpt)
+        const linkedAnnotations = await db.annotations
+          .where('linkedExcerptId').equals(dbId)
+          .toArray();
+        await Promise.all(linkedAnnotations.map((a) => db.annotations.delete(a.id)));
+
+        // Also remove them from the annotation store's in-memory state
+        const { default: useAnnotationStore } = await import('../stores/annotationStore.js');
+        const annotationStore = useAnnotationStore.getState();
+        const linkedIds = new Set(linkedAnnotations.map((a) => a.id));
+        useAnnotationStore.setState({
+          annotations: annotationStore.annotations.filter((a) => !linkedIds.has(a.id)),
+        });
       } catch (err) {
         console.error('Failed to delete excerpt from DB:', err);
       }

@@ -71,7 +71,7 @@ export default function useTextSelection(containerRef) {
       setSelectedText(text);
       setSelectedRects(mergedRects);
       setPageNumber(pageNum);
-    }, 150); // Increased debounce to prevent rapid firing while dragging
+    }, 150); // Small debounce to avoid multiple rapid fires
   }, [containerRef]);
 
   const clearSelection = useCallback(() => {
@@ -82,10 +82,35 @@ export default function useTextSelection(containerRef) {
   }, []);
 
   useEffect(() => {
-    document.addEventListener('selectionchange', handleSelectionChange);
+    // Only commit the selection to state when the user finishes dragging (mouseup/touchend)
+    // or finishes selecting with the keyboard (keyup).
+    document.addEventListener('mouseup', handleSelectionChange);
+    document.addEventListener('touchend', handleSelectionChange);
+    document.addEventListener('keyup', handleSelectionChange);
     
+    // Also clear selection on mousedown so the toolbar disappears immediately when clicking elsewhere
+    const handleMouseDown = () => {
+      // Don't clear immediately if they are clicking the selection bar itself
+      // We rely on the selectionchange event clearing it if the selection is lost
+    };
+    
+    // We still listen to selectionchange to clear the bar if selection is removed
+    const handleRawSelectionChange = () => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed) {
+        setSelectedText('');
+        setSelectedRects([]);
+        setPageNumber(null);
+      }
+    };
+    
+    document.addEventListener('selectionchange', handleRawSelectionChange);
+
     return () => {
-      document.removeEventListener('selectionchange', handleSelectionChange);
+      document.removeEventListener('mouseup', handleSelectionChange);
+      document.removeEventListener('touchend', handleSelectionChange);
+      document.removeEventListener('keyup', handleSelectionChange);
+      document.removeEventListener('selectionchange', handleRawSelectionChange);
       if (selectionTimeoutRef.current) {
         clearTimeout(selectionTimeoutRef.current);
       }

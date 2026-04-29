@@ -70,7 +70,7 @@ const useAnnotationStore = create((set, get) => ({
    * @param {string} params.selectedText - the highlighted text content
    * @returns {object} The created annotation
    */
-  addHighlight: async ({ documentId, projectId, type = 'highlight', pageNumber, color, rects, selectedText = '' }) => {
+  addHighlight: async ({ documentId, projectId, type = 'highlight', pageNumber, color, rects, selectedText = '', linkedExcerptId = null }) => {
     const now = new Date().toISOString();
     const annotation = {
       uid: nanoid(),
@@ -81,6 +81,7 @@ const useAnnotationStore = create((set, get) => ({
       color,
       rects,
       selectedText,
+      linkedExcerptId,
       noteText: '',
       tags: [],
       createdAt: now,

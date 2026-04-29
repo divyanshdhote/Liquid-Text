@@ -7,6 +7,7 @@ import {
   applyEdgeChanges,
   addEdge,
   ReactFlowProvider,
+  useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -47,6 +48,7 @@ function WorkspaceCanvasContent({ projectId }) {
 
   const { documentId } = usePdfStore(); // Optional: if we need to know active doc
   const reactFlowWrapper = useRef(null);
+  const { fitView } = useReactFlow();
 
   // Load workspace data when project changes
   useEffect(() => {
@@ -55,6 +57,19 @@ function WorkspaceCanvasContent({ projectId }) {
     }
     return () => clearWorkspace();
   }, [projectId, loadWorkspace, clearWorkspace]);
+
+  // Auto-pan to selected nodes (e.g. when clicking a highlight in the PDF)
+  useEffect(() => {
+    const selectedNodes = nodes.filter(n => n.selected);
+    if (selectedNodes.length === 1) {
+      fitView({
+        nodes: [{ id: selectedNodes[0].id }],
+        duration: 800,
+        padding: 0.5,
+        maxZoom: 1,
+      });
+    }
+  }, [nodes, fitView]);
 
   const onNodesChange = useCallback(
     (changes) => {
@@ -179,7 +194,10 @@ function WorkspaceCanvasContent({ projectId }) {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         defaultEdgeOptions={{ type: 'labeled-connection' }}
-        fitView
+        defaultViewport={{ x: 20, y: 20, zoom: 0.85 }}
+        zoomOnScroll={false}
+        panOnScroll={true}
+        zoomOnPinch={true}
       >
         <Background color="#ccc" gap={16} size={1} />
         <Controls showInteractive={false} position="bottom-right" />
